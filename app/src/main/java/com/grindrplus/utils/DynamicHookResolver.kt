@@ -66,14 +66,18 @@ class DynamicHookResolver(private val lpparam: XC_LoadPackage.LoadPackageParam) 
                                 try {
                                     val clazz = param.result as? Class<*> ?: return@forEach
                                     if (pending.methodName != null) {
-                                        XposedHelpers.findAndHookMethod(
-                                            clazz,
-                                            pending.methodName,
-                                            *getParamTypes(clazz, pending.methodName),
-                                            pending.hook
-                                        )
+                                        try {
+                                            XposedHelpers.findAndHookMethod(
+                                                clazz,
+                                                pending.methodName,
+                                                pending.hook
+                                            )
+                                        } catch (e: NoSuchMethodException) {
+                                            // Method may have params — skip, will be caught by ClassLoader hook
+                                            Logger.log("DynamicHook: method ${pending.methodName} not found without params in $className")
+                                        }
                                     } else {
-                                        XposedBridge.hookAllMethods(clazz, pending.hook)
+                                        XposedBridge.hookAllMethods(clazz, "onCreate", pending.hook)
                                     }
                                     Logger.log("DynamicHook: ${pending.description} -> $className")
                                     pendingHooks.remove(pending)
@@ -129,7 +133,7 @@ class DynamicHookResolver(private val lpparam: XC_LoadPackage.LoadPackageParam) 
         try {
             clazz.getDeclaredMethod(methodName)
             return emptyArray()
-        } catch (_: NoSuchMethodMethodException) {}
+        } catch (_: NoSuchMethodException) {}
 
         // Return empty and let XposedHelpers handle it
         return emptyArray()
