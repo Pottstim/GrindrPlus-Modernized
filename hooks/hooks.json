@@ -1,0 +1,92 @@
+{
+  "version": "2.0.0",
+  "hooks": [
+    {
+      "name": "Anti-Detection",
+      "description": "Hides root, LSPosed, debugger, and emulator presence",
+      "category": "security",
+      "defaultEnabled": true,
+      "methods": [
+        "File.exists() → hides root binaries",
+        "Runtime.exec() → blocks root commands",
+        "Throwable.getStackTrace() → filters Xposed frames",
+        "Class.forName() → blocks Xposed class lookup",
+        "Debug.isDebuggerConnected() → returns false",
+        "SystemProperties.get() → spoofs Build props",
+        "PackageManager.getPackageInfo() → strips signature flags"
+      ]
+    },
+    {
+      "name": "PairIP Blocker",
+      "description": "Bypasses all PairIP license checks (Activity, ContentProvider, native, network)",
+      "category": "security",
+      "defaultEnabled": true,
+      "methods": [
+        "LicenseActivity.onCreate() → returns null",
+        "LicenseContentProvider CRUD → returns null",
+        "Runtime.loadLibrary0() → blocks libpairpcore.so",
+        "URL.openConnection() → blocks pairip network calls",
+        "Class.forName() → blocks pairip reflection"
+      ]
+    },
+    {
+      "name": "GMS Spoof",
+      "description": "Fakes Google Play Services and Play Integrity responses",
+      "category": "security",
+      "defaultEnabled": true,
+      "methods": [
+        "GoogleApiAvailability.isGooglePlayServicesAvailable() → returns SUCCESS",
+        "PackageManager.getPackageInfo() → spoofs signatures",
+        "IntegrityManager.requestIntegrityToken() → returns null"
+      ]
+    },
+    {
+      "name": "Feature Granting",
+      "description": "Unlocks all premium features (cascades, Explore, incognito, etc.)",
+      "category": "premium",
+      "defaultEnabled": true,
+      "methods": [
+        "isPremium/isPlus/isXtra/isUnlimited → returns true",
+        "isSubscribed/isActive → returns true",
+        "getSubscriptionTier → returns 'unlimited'",
+        "canAccessExplore/isExploreAvailable → returns true",
+        "canUseIncognito/canHideDistance → returns true",
+        "shouldShowAd/shouldShowBanner → returns false"
+      ]
+    },
+    {
+      "name": "Unlimited Everything",
+      "description": "Removes all usage limits (cascades, blocks, favorites, taps, chats)",
+      "category": "premium",
+      "defaultEnabled": true,
+      "methods": [
+        "getCascadeLimit/getDailyCascadeLimit → MAX_INT",
+        "getBlockLimit/getFavoriteLimit → MAX_INT",
+        "getTapLimit/getDailyTapLimit → MAX_INT",
+        "canLoadMoreCascades/canBlockMore → returns true",
+        "hasReachedLimit → returns false"
+      ]
+    },
+    {
+      "name": "Ban Management",
+      "description": "Prevents account bans and shadow-bans",
+      "category": "security",
+      "defaultEnabled": true,
+      "methods": [
+        "isBanned/isShadowBanned/isSuspended → returns false",
+        "shouldShowBanScreen → returns false",
+        "isProfileVisible/isDiscoverable → returns true"
+      ]
+    },
+    {
+      "name": "Timber Logging",
+      "description": "Captures Grindr internal logs for debugging (debug builds only)",
+      "category": "debug",
+      "defaultEnabled": false,
+      "methods": [
+        "Timber.d/i/w/e/v → captures to GrindrPlus log",
+        "Log.d → filters for grindr/pairip keywords"
+      ]
+    }
+  ]
+}

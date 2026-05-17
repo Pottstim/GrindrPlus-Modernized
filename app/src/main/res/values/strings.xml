@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GrindrPlus</string>
+    <string name="xposed_description">Premium unlock + PairIP bypass + anti-detection for Grindr 26.x+</string>
+</resources>

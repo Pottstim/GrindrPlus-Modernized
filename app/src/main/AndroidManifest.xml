@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.grindrplus">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="GrindrPlus"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.GrindrPlus">
+
+        <!-- Xposed Module Metadata -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="GrindrPlus v2.0 — Premium unlock + PairIP bypass + anti-detection for Grindr 26.x+" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+
+        <!-- Main Activity for module settings -->
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="true"
+            android:label="GrindrPlus Settings">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
