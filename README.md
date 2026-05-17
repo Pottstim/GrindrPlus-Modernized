@@ -16,10 +16,54 @@ Premium unlock + feature enhancements for Grindr 26.x+ with PairIP bypass, GMS s
 | Config | None | JSON config with per-hook toggle |
 | Logging | `print()` | Structured Logger with file + XposedBridge |
 
+## Two Ways to Use
+
+### Option A: LSPatch Module (Recommended for No-Root)
+
+This is the **module APK** — you install it through LSPatch alongside Grindr.
+
+**What you need:**
+- Android phone (no root required)
+- [LSPatch](https://github.com/LSPosed/LSPatch) installed
+- Original Grindr APK (v26.x+) from Play Store or APKMirror
+
+**Steps:**
+1. Install LSPatch on your phone
+2. Download `app-debug.apk` from this release
+3. Open LSPatch → "Manage" → "+" → Select Grindr APK
+4. Choose "Local" mode (no internet needed for patching)
+5. Select GrindrPlus module from the list
+6. Tap "Patch" → Wait for completion
+7. Install the patched APK (uninstall original Grindr first)
+8. Open patched Grindr → Log in
+
+**Google Login workaround (LSPatch only):**
+1. Uninstall patched Grindr
+2. Install original Grindr from Play Store
+3. Reboot phone
+4. Log in with Google on original app
+5. Uninstall original Grindr
+6. Reinstall patched GrindrPlus
+7. Open and log in with Google within 10 minutes
+
+### Option B: LSPosed Module (Root — Most Stable)
+
+**What you need:**
+- Rooted Android phone
+- [LSPosed](https://github.com/LSPosed/LSPosed) (JingMatrix fork recommended)
+- Grindr installed from Play Store
+
+**Steps:**
+1. Install `app-debug.apk` on your phone
+2. Open LSPosed → "Modules" → Enable GrindrPlus
+3. Set scope to only `com.grindrapp.android`
+4. Reboot
+5. Open Grindr — all features unlocked
+
 ## Architecture
 
 ```
-GrindrPlus.kt (entry point)
+GrindrPlus.kt (Xposed entry point)
     │
     ├── Config (load/save settings)
     ├── HookManager (registry + lifecycle)
@@ -36,25 +80,18 @@ GrindrPlus.kt (entry point)
     └── Logger (structured logging)
 ```
 
-## Build
+## Build from Source
 
 ### Prerequisites
 - Android SDK (API 34)
 - Kotlin 1.9+
 - Gradle 8.4+
 
-### LSPosed (Root)
 ```bash
-cd build/
+git clone https://github.com/Pottstim/GrindrPlus-Modernized.git
+cd GrindrPlus-Modernized
 ./gradlew assembleDebug
-# Install APK → Enable in LSPosed → Select Grindr scope
-```
-
-### LSPatch (No-Root)
-```bash
-# Build module APK first, then:
-./scripts/lspatch-build.sh Grindr_v26.x.apk app-debug.apk
-# Install patched APK → Enable in LSPatch
+# Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## File Structure
