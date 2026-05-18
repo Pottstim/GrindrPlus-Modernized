@@ -16,11 +16,32 @@ Premium unlock + feature enhancements for Grindr 26.x+ with PairIP bypass, GMS s
 | Config | None | JSON config with per-hook toggle |
 | Logging | `print()` | Structured Logger with file + XposedBridge |
 
-## Two Ways to Use
+## Three Ways to Use
 
-### Option A: LSPatch Module (Recommended for No-Root)
+### Option A: Pre-Patched APK (Easiest — No Root, No LSPatch)
 
-This is the **module APK** — you install it through LSPatch alongside Grindr.
+Download the **pre-patched Grindr APK** — GrindrPlus is already embedded. Just install and go.
+
+**What you need:**
+- Android phone (no root required)
+- A way to install split APKs (SAI, APKMirror Installer, or `adb install-multiple`)
+
+**Files:**
+- `grindr-patched.apks` (141MB) — All architectures + all languages + all DPI
+- `grindr-patched-slim.apks` (101MB) — arm64 only + common languages + common DPI (recommended for most phones)
+
+**Steps:**
+1. Uninstall original Grindr (if installed)
+2. Download `grindr-patched-slim.apks` from this release
+3. Install using one of these methods:
+   - **SAI (Split APK Installer):** Install SAI from Play Store → Open → Select the `.apks` file → Install
+   - **APKMirror Installer:** Install from Play Store → Open → Select the `.apks` file → Install
+   - **ADB:** Extract the `.apks` zip → `adb install-multiple *.apk`
+4. Open Grindr → Log in → All features unlocked
+
+### Option B: LSPatch Module (No-Root, Flexible)
+
+Use the **module APK** with LSPatch to patch any Grindr version yourself.
 
 **What you need:**
 - Android phone (no root required)
@@ -46,7 +67,7 @@ This is the **module APK** — you install it through LSPatch alongside Grindr.
 6. Reinstall patched GrindrPlus
 7. Open and log in with Google within 10 minutes
 
-### Option B: LSPosed Module (Root — Most Stable)
+### Option C: LSPosed Module (Root — Most Stable)
 
 **What you need:**
 - Rooted Android phone
