@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "min_version": "2.0.0",
+  "features": {
+    "unlimited_messages": true,
+    "see_who_viewed": true,
+    "unlimited_rewinds": true,
+    "premium_filters": true,
+    "expiring_photos": true,
+    "typing_status": true,
+    "advanced_search": true,
+    "hide_online": false,
+    "hide_read_receipts": false,
+    "hide_distance": false
+  },
+  "hooks": {
+    "hook_0": "com.grindrapp.android.flag.FeatureFlag",
+    "hook_1": "com.grindrapp.android.model.Feature",
+    "hook_2": "com.grindrapp.android.billing."
+  },
+  "blocked": {
+    "block_0": "com.pairip.licensecheck.LicenseContentProvider",
+    "block_1": "com.pairip.licensecheck.LicenseActivity",
+    "block_2": "com.pairipcore.PairIP"
+  },
+  "messages": {
+    "update_available": false,
+    "update_url": "",
+    "notice": ""
+  }
+}

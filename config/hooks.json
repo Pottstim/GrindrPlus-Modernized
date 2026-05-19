@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "patterns": {
+    "feature_flags": [
+      "com.grindrapp.android.flag.FeatureFlag",
+      "com.grindrapp.android.model.Feature",
+      "com.grindrapp.android.billing.Subscription",
+      "com.grindrapp.android.billing.GrindrBilling"
+    ],
+    "premium_checks": [
+      "isPremium",
+      "isXtra",
+      "isUnlimited",
+      "hasPremium",
+      "getSubscriptionStatus",
+      "isSubscriptionActive"
+    ],
+    "pairip": [
+      "com.pairip.licensecheck.LicenseContentProvider",
+      "com.pairip.licensecheck.LicenseActivity",
+      "com.pairipcore.PairIP",
+      "com.pairipcore.PairIPCore"
+    ],
+    "gms": [
+      "com.google.android.gms.common.GooglePlayServicesUtil",
+      "com.google.android.gms.common.GoogleApiAvailability",
+      "com.google.android.gms.security.ProviderInstaller"
+    ]
+  },
+  "signatures": {
+    "grindr_26": {
+      "package_name": "com.grindrapp.android",
+      "version_code_min": 162000,
+      "version_code_max": 163000,
+      "target_sdk": 34
+    }
+  }
+}

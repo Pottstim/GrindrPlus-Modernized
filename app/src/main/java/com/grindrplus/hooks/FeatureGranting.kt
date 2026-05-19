@@ -1,36 +1,40 @@
 package com.grindrplus.hooks
 
 import com.grindrplus.core.Config
-import de.robv.android.xposed.XposedBridge
+import com.grindrplus.core.RemoteConfig
 import com.grindrplus.utils.Hook
 import com.grindrplus.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XC_MethodReplacement
+import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 
-class FeatureGranting : Hook("Feature Granting", "Unlocks all premium features: unlimited taps, views, expiring photos, etc.") {
+class FeatureGranting : Hook("Feature Granting", "Unlocks premium features with granular toggles") {
+
     override fun init() {
         Config.registerHook(name, description, true)
-        grantPremiumFeatures()
-    }
 
-    private fun grantPremiumFeatures() {
-        // Strategy 1: Hook boolean feature flag methods
+        // Apply remote hook patterns if available
+        val remotePatterns = RemoteConfig.getHookPatterns()
+        if (remotePatterns.isNotEmpty()) {
+            Logger.log("FeatureGranting: ${remotePatterns.size} remote patterns loaded")
+        }
+
         hookFeatureFlags()
-        // Strategy 2: Hook subscription status
         hookSubscriptionStatus()
-        // Strategy 3: Hook feature config objects
         hookFeatureConfig()
+        hookRemotePatterns(remotePatterns)
     }
 
     private fun hookFeatureFlags() {
         val flagPatterns = listOf(
             "isPremium", "isXtra", "isUnlimited", "hasPremium",
-            "isSubscriber", "isPaid", "isVip", "isGold"
+            "isSubscriber", "isPaid", "isVip", "isGold",
+            "hasFreeTrial", "isTrial", "isExpired"
         )
         try {
+            // Hook common boolean-returning methods via class loader scanning
             val appClassLoader = lpparam.classLoader
-            // Scan loaded classes for feature flag methods
             val threadClass = XposedHelpers.findClass("java.lang.Thread", appClassLoader)
             XposedHelpers.findAndHookMethod(threadClass, "currentThread",
                 XC_MethodReplacement.returnConstant(Thread.currentThread()))
@@ -40,7 +44,6 @@ class FeatureGranting : Hook("Feature Granting", "Unlocks all premium features: 
 
     private fun hookSubscriptionStatus() {
         try {
-            // Hook common subscription check patterns
             val patterns = listOf(
                 "com.grindrapp.android.model.Feature",
                 "com.grindrapp.android.billing",
@@ -60,7 +63,6 @@ class FeatureGranting : Hook("Feature Granting", "Unlocks all premium features: 
 
     private fun hookFeatureConfig() {
         try {
-            // Hook SharedPreferences to return premium values
             val prefsClass = XposedHelpers.findClass("android.app.SharedPreferencesImpl", lpparam.classLoader)
             XposedHelpers.findAndHookMethod(prefsClass, "getBoolean",
                 String::class.java, Boolean::class.javaPrimitiveType,
@@ -77,5 +79,20 @@ class FeatureGranting : Hook("Feature Granting", "Unlocks all premium features: 
                 })
             Logger.log("FeatureGranting: SharedPreferences hook active")
         } catch (e: Throwable) { Logger.error("hookFeatureConfig", e) }
+    }
+
+    private fun hookRemotePatterns(patterns: List<String>) {
+        if (patterns.isEmpty()) return
+        patterns.forEach { className ->
+            try {
+                val clazz = lpparam.classLoader.loadClass(className)
+                XposedBridge.hookAllMethods(clazz, "isEnabled", XC_MethodReplacement.returnConstant(true))
+                XposedBridge.hookAllMethods(clazz, "isAvailable", XC_MethodReplacement.returnConstant(true))
+                XposedBridge.hookAllMethods(clazz, "hasAccess", XC_MethodReplacement.returnConstant(true))
+                XposedBridge.hookAllMethods(clazz, "isPremium", XC_MethodReplacement.returnConstant(true))
+                XposedBridge.hookAllMethods(clazz, "isPaid", XC_MethodReplacement.returnConstant(true))
+                Logger.log("FeatureGranting: Remote hook applied to $className")
+            } catch (_: Throwable) { }
+        }
     }
 }
