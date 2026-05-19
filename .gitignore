@@ -77,3 +77,4 @@ lint/tmp/
 .DS_Store
 Thumbs.db
 *.apks
+*.apks
