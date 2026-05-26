@@ -4,7 +4,11 @@ import com.grindrplus.core.Config
 import com.grindrplus.core.HookStateStore
 import com.grindrplus.core.RemoteConfig
 import com.grindrplus.hooks.*
+import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HookManager {
     private val hooks = mutableListOf<Hook>()
@@ -18,6 +22,7 @@ class HookManager {
         register(EnableUnlimited())
         register(BanManagement())
         register(TimberLogging())
+        register(CertPinBypass())
     }
 
     private fun register(hook: Hook) {
@@ -28,14 +33,16 @@ class HookManager {
     fun initAll(lpparam: XC_LoadPackage.LoadPackageParam): Map<String, Boolean> {
         Config.init()
         HookStateStore.incrementInitCount()
+        HookStateStore.init(null)
 
         // Fetch remote config
         if (Config.isRemoteConfigEnabled()) {
-            RemoteConfig.fetch()
-            // Apply remote feature toggles
-            val remoteFeatures = RemoteConfig.getFeatureOverrides()
-            if (remoteFeatures.isNotEmpty()) {
-                Config.applyRemoteFeatures(remoteFeatures)
+            RemoteConfig.fetchAsync { remoteJson ->
+                val remoteFeatures = RemoteConfig.getFeatureOverrides()
+                if (remoteFeatures.isNotEmpty()) {
+                    Config.applyRemoteFeatures(remoteFeatures)
+                    Logger.log("RemoteConfig: Applied ${remoteFeatures.size} feature overrides")
+                }
             }
         }
 
@@ -98,7 +105,7 @@ class HookManager {
     fun getTestReport(): String {
         val sb = StringBuilder()
         sb.appendLine("=== Hook Test Report ===")
-        sb.appendLine("Timestamp: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())}")
+        sb.appendLine("Timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
         sb.appendLine()
 
         hooks.forEach { hook ->

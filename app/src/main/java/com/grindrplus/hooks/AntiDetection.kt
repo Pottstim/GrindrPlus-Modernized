@@ -9,261 +9,250 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
+import java.io.FileReader
 
-class AntiDetection : Hook("Anti-Detection", "Hides root, LSPosed, debugger, emulator, Frida, and modified APK") {
+class AntiDetection : Hook("Anti-Detection", "Bypasses root, Xposed, debugger, emulator, Frida, and modified APK detection") {
 
     override fun init() {
         Config.registerHook(name, description, true)
+        bypassRootDetection()
+        bypassXposedDetection()
+        bypassDebuggerDetection()
+        bypassEmulatorDetection()
+        bypassFridaDetection()
+        bypassModifiedApkDetection()
+        Logger.log("Anti-Detection: All layers active")
+    }
 
-        // Check for Frida — crash silently if detected
-        if (isFridaDetected()) {
-            Logger.warn("Frida detected! Entering clean mode.")
-            return
+    private fun bypassRootDetection() {
+        // Hook common root check methods
+        val rootCheckClasses = listOf(
+            "com.scottyab.rootbeer.RootBeer",
+            "com.topjohnwu.magisk.utils.DenylistDetector",
+            "com.topjohnwu.magisk.utils.IS denial"
+        )
+        rootCheckClasses.forEach { className ->
+            try {
+                val clazz = lpparam.classLoader.loadClass(className)
+                XposedBridge.hookAllMethods(clazz, "isRooted", XC_MethodReplacement.returnConstant(false))
+                XposedBridge.hookAllMethods(clazz, "detectRootManagementApps", XC_MethodReplacement.returnConstant(false))
+                XposedBridge.hookAllMethods(clazz, "detectPotentiallyDangerousApps", XC_MethodReplacement.returnConstant(false))
+                XposedBridge.hookAllMethods(clazz, "detectSuBinary", XC_MethodReplacement.returnConstant(false))
+                Logger.log("AntiDetect: Root check bypassed for $className")
+            } catch (_: Throwable) { }
         }
 
-        hideRoot()
-        hideXposed()
-        hideDebugger()
-        hideEmulator()
-        hideFrida()
-        spoofBuildProperties()
-        hideModifiedApk()
-    }
-
-    private fun isFridaDetected(): Boolean {
-        return try {
-            // Check for Frida server port
-            val process = Runtime.getRuntime().exec("netstat -tlnp")
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                if (line?.contains("27042") == true || line?.contains("27043") == true) {
-                    reader.close()
-                    return true
+        // Block ProcessBuilder / exec for su, magisk, etc.
+        try {
+            XposedHelpers.findAndHookMethod(
+                ProcessBuilder::class.java, "start",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        try {
+                            val pb = param.thisObject as ProcessBuilder
+                            val command = pb.command().joinToString(" ")
+                            if (command.contains("su") || command.contains("magisk") ||
+                                command.contains("busybox")) {
+                                Logger.log("AntiDetect: Blocked command: $command")
+                                pb.command(listOf("echo", ""))
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
-            }
-            reader.close()
-
-            // Check /proc/self/maps for frida
-            val mapsFile = File("/proc/self/maps")
-            if (mapsFile.exists()) {
-                val content = mapsFile.readText()
-                if (content.contains("frida") || content.contains("gadget") || content.contains("linjector")) {
-                    return true
-                }
-            }
-
-            // Check for Frida-specific files
-            val fridaFiles = listOf(
-                "/data/local/tmp/frida-server",
-                "/data/local/tmp/frida-gadget",
-                "/data/local/tmp/re.frida.server"
             )
-            fridaFiles.any { File(it).exists() }
-        } catch (_: Throwable) { false }
+        } catch (e: Throwable) { Logger.error("bypassRootDetection:ProcessBuilder", e) }
+
+        // Hide Magisk / SU files
+        val dangerousPaths = listOf(
+            "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su",
+            "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su",
+            "/sdcard/magisk", "/data/adb/magisk", "/cache/magisk.log"
+        )
+        dangerousPaths.forEach { path ->
+            try {
+                val fileClass = File::class.java
+                XposedHelpers.findAndHookConstructor(fileClass, String::class.java,
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            try {
+                                val file = param.thisObject as File
+                                if (file.absolutePath == path) {
+                                    val field = File::class.java.getDeclaredField("path")
+                                    field.isAccessible = true
+                                    field.set(param.thisObject, "/dev/null/nonexistent")
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                    })
+            } catch (_: Throwable) { }
+        }
     }
 
-    private fun hideRoot() {
+    private fun bypassXposedDetection() {
+        // Clear stack trace of Xposed classes
         try {
-            val fileClass = XposedHelpers.findClass("java.io.File", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(fileClass, "exists", object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val file = param.thisObject as? File ?: return
-                    val path = file.absolutePath
-                    if (path.contains("/su") || path.contains("/magisk") ||
-                        path.contains("supersu") || path.contains("Superuser") ||
-                        path.contains("/sbin/.magisk") || path.contains("/system/xbin/su") ||
-                        path.contains("/system/bin/su") || path.contains("/data/adb/magisk")) {
-                        param.result = false
+            XposedHelpers.findAndHookMethod(
+                Throwable::class.java, "getStackTrace",
+                object : XC_MethodReplacement() {
+                    override fun replaceHookedMethod(param: de.robv.android.xposed.XC_MethodHook.MethodHookParam): Array<StackTraceElement> {
+                        try {
+                            val original = Throwable().stackTrace
+                            return original.filter { element ->
+                                !element.className.contains("de.robv.android.xposed") &&
+                                !element.className.contains("com.grindrplus") &&
+                                !element.methodName.contains("handleHookedMethod") &&
+                                !element.methodName.contains("invoke")
+                            }.toTypedArray()
+                        } catch (_: Throwable) { return emptyArray() }
                     }
                 }
-            })
+            )
+        } catch (e: Throwable) { Logger.error("bypassXposedDetection:getStackTrace", e) }
 
-            // Hook ProcessBuilder to block su commands
-            val processBuilder = XposedHelpers.findClass("java.lang.ProcessBuilder", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(processBuilder, "start", object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val command = param.thisObject as? ProcessBuilder ?: return
-                    val cmdList = try {
-                        val field = ProcessBuilder::class.java.getDeclaredField("command")
-                        field.isAccessible = true
-                        field.get(command) as? List<*>
-                    } catch (_: Throwable) { null }
-                    val cmd = cmdList?.joinToString(" ") ?: ""
-                    if (cmd.contains("su") || cmd.contains("magisk") || cmd.contains("which")) {
-                        param.throwable = java.io.IOException("Permission denied")
-                    }
-                }
-            })
-
-            Logger.log("AntiDetection: Root hiding active")
-        } catch (e: Throwable) { Logger.error("hideRoot", e) }
-    }
-
-    private fun hideXposed() {
+        // Hook ClassLoader to hide Xposed classes
         try {
-            // Block Class.forName for Xposed classes
             XposedHelpers.findAndHookMethod(
-                "java.lang.Class", lpparam.classLoader, "forName",
-                String::class.java, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val name = param.args[0] as? String ?: return
-                        if (name.contains("de.robv.android.xposed") ||
-                            name.contains("org.lsposed") ||
-                            name.contains("io.github.lsposed") ||
-                            name.contains("com.topjohnwu.magisk") ||
-                            name.contains("me.weishu.exp")) {
-                            param.throwable = ClassNotFoundException(name)
-                        }
-                    }
-                })
-
-            // Block ClassLoader.loadClass for Xposed
-            XposedHelpers.findAndHookMethod(
-                "java.lang.ClassLoader", lpparam.classLoader, "loadClass",
-                String::class.java, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val name = param.args[0] as? String ?: return
-                        if (name.contains("de.robv.android.xposed") ||
-                            name.contains("org.lsposed") ||
-                            name.contains("io.github.lsposed")) {
-                            param.throwable = ClassNotFoundException(name)
-                        }
-                    }
-                })
-
-            // Hook PackageManager to hide LSPatch/GrindrPlus
-            XposedHelpers.findAndHookMethod(
-                "android.app.ApplicationPackageManager", lpparam.classLoader,
-                "getPackageInfo", String::class.java, Int::class.javaPrimitiveType,
+                ClassLoader::class.java, "loadClass",
+                String::class.java, Boolean::class.javaPrimitiveType,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[0] as? String ?: return
-                        if (pkg.contains("org.lsposed") ||
-                            pkg.contains("io.github.lsposed") ||
-                            pkg.contains("com.grindrplus")) {
-                            param.throwable = android.content.pm.PackageManager.NameNotFoundException(pkg)
+                        val className = param.args[0] as? String ?: return
+                        if (className.contains("de.robv.android.xposed") ||
+                            className.contains("com.grindrplus")) {
+                            param.throwable = ClassNotFoundException(className)
                         }
                     }
-                })
+                }
+            )
+        } catch (e: Throwable) { Logger.error("bypassXposedDetection:loadClass", e) }
 
-            Logger.log("AntiDetection: Xposed hiding active")
-        } catch (e: Throwable) { Logger.error("hideXposed", e) }
-    }
-
-    private fun hideDebugger() {
+        // Hook SystemProperties to hide Xposed
         try {
-            XposedHelpers.findAndHookMethod(
-                "android.os.Debug", lpparam.classLoader,
-                "isDebuggerConnected", XC_MethodReplacement.returnConstant(false))
-
-            // Also hook via SystemProperties
-            XposedHelpers.findAndHookMethod(
-                "android.os.SystemProperties", lpparam.classLoader,
-                "get", String::class.java, String::class.java,
+            val systemProperties = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
+            XposedHelpers.findAndHookMethod(systemProperties, "get", String::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val key = param.args[0] as? String ?: return
-                        if (key.contains("debug") || key.contains("adb")) {
-                            param.result = param.args[1] // return default value
+                        if (key.contains("vbox") || key.contains("goldfish") || key.contains("xposed")) {
+                            param.result = ""
                         }
                     }
                 })
-
-            Logger.log("AntiDetection: Debugger hiding active")
-        } catch (e: Throwable) { Logger.error("hideDebugger", e) }
+        } catch (_: Throwable) { }
     }
 
-    private fun hideEmulator() {
+    private fun bypassDebuggerDetection() {
         try {
-            val buildClass = XposedHelpers.findClass("android.os.Build", lpparam.classLoader)
-            XposedHelpers.setStaticObjectField(buildClass, "FINGERPRINT", "google/redfin/redfin:13/TP1A.221005.002/9012097:user/release-keys")
-            XposedHelpers.setStaticObjectField(buildClass, "MODEL", "Pixel 5")
-            XposedHelpers.setStaticObjectField(buildClass, "MANUFACTURER", "Google")
-            XposedHelpers.setStaticObjectField(buildClass, "BRAND", "google")
-            XposedHelpers.setStaticObjectField(buildClass, "PRODUCT", "redfin")
-            XposedHelpers.setStaticObjectField(buildClass, "DEVICE", "redfin")
-            XposedHelpers.setStaticObjectField(buildClass, "HARDWARE", "redfin")
-            XposedHelpers.setStaticObjectField(buildClass, "BOARD", "redfin")
-            XposedHelpers.setStaticObjectField(buildClass, "BOOTLOADER", "unknown")
-            XposedHelpers.setStaticObjectField(buildClass, "RADIO", "unknown")
-            XposedHelpers.setStaticObjectField(buildClass, "SERIAL", "unknown")
-            Logger.log("AntiDetection: Emulator hiding active")
-        } catch (e: Throwable) { Logger.error("hideEmulator", e) }
+            val debugClass = Class.forName("android.os.Debug")
+            XposedBridge.hookAllMethods(debugClass, "isDebuggerConnected",
+                XC_MethodReplacement.returnConstant(false)
+            )
+        } catch (e: Throwable) { Logger.error("bypassDebuggerDetection", e) }
     }
 
-    private fun hideFrida() {
+    private fun bypassEmulatorDetection() {
         try {
-            // Hook File.list to hide Frida files
-            XposedHelpers.findAndHookMethod("java.io.File", lpparam.classLoader,
-                "list", object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val result = param.result as? Array<*> ?: return
-                        val filtered = result.filter {
-                            val s = it?.toString() ?: return@filter true
-                            !s.contains("frida") && !s.contains("gadget") && !s.contains("linjector")
-                        }.toTypedArray()
-                        if (filtered.size != result.size) {
-                            param.result = filtered
+            XposedHelpers.findAndHookMethod(
+                "android.telephony.TelephonyManager", lpparam.classLoader,
+                "getDeviceId", XC_MethodReplacement.returnConstant("000000000000000")
+            )
+        } catch (e: Throwable) { Logger.error("bypassDebuggerDetection", e) }
+
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.telephony.TelephonyManager", lpparam.classLoader,
+                "getNetworkOperatorName", XC_MethodReplacement.returnConstant("T-Mobile")
+            )
+        } catch (_: Throwable) { }
+    }
+
+    /**
+     * Issue #7 fix: Read /proc/net/tcp instead of running netstat command
+     * Running netstat from the app process is itself a detection vector
+     */
+    private fun bypassFridaDetection() {
+        // Hook java.lang.Runtime.exec to block Frida detection commands
+        val runtimeClass = XposedHelpers.findClass(
+            "java.lang.Runtime", lpparam.classLoader
+        )
+        XposedBridge.hookAllMethods(runtimeClass, "exec",
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val cmd = try {
+                        when (param.args.size) {
+                            1 -> param.args[0] as? String ?: ""
+                            else -> (param.args[0] as? Array<*>)?.joinToString(" ") ?: ""
                         }
+                    } catch (_: Throwable) { "" }
+                    if (cmd.contains("netstat") || cmd.contains("frida") || cmd.contains("xposed")) {
+                        Logger.log("AntiDetect: Blocked exec: $cmd")
+                        param.args[0] = "echo"
                     }
-                })
+                }
+            }
+        )
 
-            // Hook Runtime.exec to block Frida detection commands
-            XposedHelpers.findAndHookMethod("java.lang.Runtime", lpparam.classLoader,
-                "exec", String::class.java, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val cmd = param.args[0] as? String ?: return
-                        if (cmd.contains("frida") || cmd.contains("gadget") || cmd.contains("linjector")) {
-                            param.throwable = java.io.IOException("No such file or directory")
-                        }
-                    }
-                })
-
-            Logger.log("AntiDetection: Frida hiding active")
-        } catch (e: Throwable) { Logger.error("hideFrida", e) }
-    }
-
-    private fun spoofBuildProperties() {
+        // Check /proc/net/tcp for Frida's default port (27042) — read-only, no exec
         try {
-            // Hook SystemProperties.get for common detection keys
-            val sysProps = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(sysProps, "get",
-                String::class.java, String::class.java,
+            val fridaPorts = setOf("69A2", "69A3") // 27042, 27043 in hex
+            val tcpFile = File("/proc/net/tcp")
+            if (tcpFile.exists()) {
+                val content = tcpFile.readText()
+                for (port in fridaPorts) {
+                    if (content.contains(port)) {
+                        Logger.warn("AntiDetect: Frida port detected in /proc/net/tcp!")
+                        // Don't modify — just log. Modifying /proc is not possible.
+                        // The real fix is to not have Frida running simultaneously.
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+
+        // Hook File.list to hide Frida-related files
+        try {
+            XposedHelpers.findAndHookMethod(
+                File::class.java, "list",
                 object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val key = param.args[0] as? String ?: return
-                        when {
-                            key == "ro.build.tags" -> param.result = "release-keys"
-                            key == "ro.build.type" -> param.result = "user"
-                            key == "ro.debuggable" -> param.result = "0"
-                            key == "ro.secure" -> param.result = "1"
-                            key == "ro.build.selinux" -> param.result = "1"
-                            key == "ro.product.model" -> param.result = "Pixel 5"
-                            key == "ro.product.manufacturer" -> param.result = "Google"
-                            key == "ro.product.brand" -> param.result = "google"
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val file = param.thisObject as File
+                        val result = param.result as? Array<String> ?: return
+                        if (result.any { it.contains("frida") || it.contains("xposed") }) {
+                            param.result = result.filter {
+                                !it.contains("frida") && !it.contains("xposed")
+                            }.toTypedArray()
                         }
                     }
-                })
-            Logger.log("AntiDetection: Build property spoofing active")
-        } catch (e: Throwable) { Logger.error("spoofBuildProperties", e) }
+                }
+            )
+        } catch (_: Throwable) { }
     }
 
-    private fun hideModifiedApk() {
+    private fun bypassModifiedApkDetection() {
+        // Hook PackageManager to report original package info
         try {
-            // Hook PackageManager.getApplicationInfo to hide modified flags
             XposedHelpers.findAndHookMethod(
                 "android.app.ApplicationPackageManager", lpparam.classLoader,
-                "getApplicationInfo", String::class.java, Int::class.javaPrimitiveType,
+                "getInstallerPackageName", String::class.java,
+                XC_MethodReplacement.returnConstant("com.android.vending")
+            )
+        } catch (e: Throwable) { Logger.error("bypassModifiedApkDetection", e) }
+
+        // Spoof source dir to look like original install
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.content.ContextWrapper", lpparam.classLoader,
+                "getPackageResourcePath",
                 object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val info = param.result as? android.content.pm.ApplicationInfo ?: return
-                        // Clear flags that indicate modification
-                        info.flags = info.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE.inv()
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        try {
+                            val originalPath = param.result as? String ?: return
+                            if (originalPath.contains("lspatch") || originalPath.contains("xposed")) {
+                                param.result = originalPath.replace(Regex("lspatch[^/]*"), "")
+                            }
+                        } catch (_: Throwable) {}
                     }
-                })
-            Logger.log("AntiDetection: Modified APK hiding active")
-        } catch (e: Throwable) { Logger.error("hideModifiedApk", e) }
+                }
+            )
+        } catch (_: Throwable) { }
     }
 }

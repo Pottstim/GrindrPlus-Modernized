@@ -99,4 +99,34 @@ object Config {
         }
         return sb.toString()
     }
+
+    fun getRegisteredHooks(): Map<String, Boolean> = hookEnabled.toMap()
+
+    fun getHookStatusReport(): String {
+        val sb = StringBuilder()
+        sb.appendLine("=== GrindrPlus Status ===")
+        sb.appendLine("Debug: $debugMode | Remote: $remoteConfigEnabled | Safe: $safeMode")
+        sb.appendLine()
+        sb.appendLine("Hooks:")
+        hookEnabled.forEach { (name, enabled) ->
+            val desc = hookDescs[name] ?: ""
+            sb.appendLine("  ${if (enabled) "✓" else "✗"} $name — $desc")
+        }
+        sb.appendLine()
+        sb.appendLine("Features:")
+        featureToggles.forEach { (name, enabled) ->
+            sb.appendLine("  ${if (enabled) "✓" else "✗"} $name")
+        }
+        return sb.toString()
+    }
+
+    fun reset() {
+        hookEnabled.clear()
+        hookDescs.clear()
+        init()
+        debugMode = true
+        remoteConfigEnabled = true
+        safeMode = false
+        Logger.log("Config: All state reset")
+    }
 }

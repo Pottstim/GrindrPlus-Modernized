@@ -14,14 +14,20 @@
     "hide_distance": false
   },
   "hooks": {
-    "hook_0": "com.grindrapp.android.flag.FeatureFlag",
+    "hook_0": "com.grindrapp.android.flag.",
     "hook_1": "com.grindrapp.android.model.Feature",
-    "hook_2": "com.grindrapp.android.billing."
+    "hook_2": "com.grindrapp.android.billing.",
+    "hook_3": "com.grindrapp.android.data.model.Config"
   },
   "blocked": {
     "block_0": "com.pairip.licensecheck.LicenseContentProvider",
     "block_1": "com.pairip.licensecheck.LicenseActivity",
-    "block_2": "com.pairipcore.PairIP"
+    "block_2": "com.pairipcore.PairIP",
+    "block_3": "com.pairipcore."
+  },
+  "native_blocked": {
+    "lib_0": "libpairip.so",
+    "lib_1": "libpairipcore.so"
   },
   "messages": {
     "update_available": false,

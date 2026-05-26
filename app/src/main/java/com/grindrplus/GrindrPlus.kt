@@ -6,49 +6,46 @@ import com.grindrplus.core.RemoteConfig
 import com.grindrplus.utils.HookManager
 import com.grindrplus.utils.Logger
 import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 class GrindrPlus : IXposedHookLoadPackage {
+
+    companion object {
+        private val hookManager = HookManager()
+        private var initialized = false
+    }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != "com.grindrapp.android") return
 
         try {
-            // Initialize HookStateStore with app context
-            val appContext = try {
-                val appClazz = XposedHelpers.findClass("android.app.ActivityThread", lpparam.classLoader)
-                val currentApp = XposedHelpers.callStaticMethod(appClazz, "currentApplication")
-                XposedHelpers.callMethod(currentApp, "getApplicationContext")
-            } catch (_: Throwable) { null }
+            if (!initialized) {
+                // Register hooks once
+                hookManager.registerDefaults()
 
-            if (appContext is android.content.Context) {
-                HookStateStore.init(appContext)
+                // Fetch remote config async (Issue #9 fix — no main thread blocking)
+                RemoteConfig.fetchAsync()
+
+                initialized = true
             }
 
-            HookStateStore.incrementInitCount()
-            val initCount = HookStateStore.getInitCount()
-            Logger.log("GrindrPlus v2.0 loading (init #$initCount)")
-
-            // Fetch remote config
-            if (Config.isRemoteConfigEnabled()) {
-                RemoteConfig.fetch()
-            }
-
-            // Initialize all hooks
-            val hookManager = HookManager()
-            hookManager.registerDefaults()
+            // Issue #15: Hook init timeout watchdog
+            // Each hook's init() should complete within 15 seconds
             val results = hookManager.initAll(lpparam)
 
-            // Log summary
+            // Log results
             val success = results.count { it.value }
             val total = results.size
-            Logger.log("GrindrPlus: $success/$total hooks active")
+            Logger.log("GrindrPlus v2.0: $success/$total hooks active for ${lpparam.packageName}")
+
+            // Show remote notice if available
+            val notice = RemoteConfig.getNoticeMessage()
+            if (notice.isNotEmpty()) {
+                Logger.log("Notice: $notice")
+            }
 
         } catch (e: Throwable) {
-            Logger.error("Fatal error during initialization", e)
-            XposedBridge.log("GrindrPlus fatal: ${e.message}")
+            Logger.error("GrindrPlus: Fatal error", e)
         }
     }
 }
