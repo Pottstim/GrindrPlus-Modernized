@@ -27,12 +27,12 @@ Download the **pre-patched Grindr APK** — GrindrPlus is already embedded. Just
 - A way to install split APKs (SAI, APKMirror Installer, or `adb install-multiple`)
 
 **Files:**
-- `grindr-patched.apks` (141MB) — All architectures + all languages + all DPI
-- `grindr-patched-slim.apks` (101MB) — arm64 only + common languages + common DPI (recommended for most phones)
+- `grindr-26.8.2-grindrplus-v2-signed.apks` (145MB) — All architectures + all languages + all DPI
+- `grindr-26.8.2-grindrplus-v2-slim.apks` (111MB) — arm64 only + common languages + common DPI (recommended for most phones)
 
 **Steps:**
 1. Uninstall original Grindr (if installed)
-2. Download `grindr-patched-slim.apks` from this release
+2. Download `grindr-26.8.2-grindrplus-v2-slim.apks` from the **v2.0.0-slim** release (or the full version from **v2.0.0-full**).
 3. Install using one of these methods:
    - **SAI (Split APK Installer):** Install SAI from Play Store → Open → Select the `.apks` file → Install
    - **APKMirror Installer:** Install from Play Store → Open → Select the `.apks` file → Install
@@ -50,7 +50,7 @@ Use the **module APK** with LSPatch to patch any Grindr version yourself.
 
 **Steps:**
 1. Install LSPatch on your phone
-2. Download `app-debug.apk` from this release
+2. Download `app-debug.apk` from the **v2.0.0-module** release
 3. Open LSPatch → "Manage" → "+" → Select Grindr APK
 4. Choose "Local" mode (no internet needed for patching)
 5. Select GrindrPlus module from the list
@@ -75,7 +75,7 @@ Use the **module APK** with LSPatch to patch any Grindr version yourself.
 - Grindr installed from Play Store
 
 **Steps:**
-1. Install `app-debug.apk` on your phone
+1. Install `app-debug.apk` (from the **v2.0.0-module** release) on your phone
 2. Open LSPosed → "Modules" → Enable GrindrPlus
 3. Set scope to only `com.grindrapp.android`
 4. Reboot
