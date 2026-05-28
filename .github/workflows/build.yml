@@ -39,24 +39,80 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Build debug APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
-      - name: Upload APK artifact
+      # -----------------------------------------------------------------------
+      # Build 1: Debug module APK (for LSPosed / LSPatch use)
+      # -----------------------------------------------------------------------
+      - name: Build debug module APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload module APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: GrindrPlus-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
+      # -----------------------------------------------------------------------
+      # Build 2: Release bundle (.aab) + split APKs via bundletool
+      # Fix: Adds proper split APK (.apks) generation for SAI / adb install-multiple.
+      # The original workflow only produced a monolithic debug APK with no splits.
+      # -----------------------------------------------------------------------
+      - name: Build release bundle (AAB)
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+
+      - name: Download bundletool
+        run: |
+          BUNDLETOOL_VERSION=1.15.6
+          curl -L -o bundletool.jar \
+            "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+
+      - name: Generate universal .apks from release AAB
+        run: |
+          mkdir -p app/build/outputs/apks
+          # Use the Android debug keystore for signing the universal split bundle
+          java -jar bundletool.jar build-apks \
+            --bundle=app/build/outputs/bundle/release/app-release.aab \
+            --output=app/build/outputs/apks/grindrplus-v2-universal.apks \
+            --mode=universal \
+            --ks="$ANDROID_HOME/debug.keystore" \
+            --ks-pass=pass:android \
+            --key-pass=pass:android \
+            --ks-key-alias=androiddebugkey
+
+      - name: Upload universal .apks artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrindrPlus-universal-apks
+          path: app/build/outputs/apks/grindrplus-v2-universal.apks
+          retention-days: 30
+
+      # -----------------------------------------------------------------------
+      # Release: publish both the module APK and the .apks bundle on main push
+      # -----------------------------------------------------------------------
       - name: Upload to release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0.0
-          files: app/build/outputs/apk/debug/app-debug.apk
+          tag_name: v2.0.1
+          name: "GrindrPlus v2.0.1 — Stability Fixes"
+          body: |
+            ## What's Fixed in v2.0.1
+
+            - **Critical:** HookStateStore now receives a real Android Context — self-healing, safe mode, and exponential backoff are fully functional.
+            - **Critical:** BanManagement OkHttp interceptor no longer drains the response stream on non-ban responses (prevents app crash).
+            - **High:** AntiDetection ClassLoader and Throwable hooks now have ThreadLocal re-entrancy guards to prevent infinite loops.
+            - **High:** FeatureGranting Dex scanning moved to a background thread — no more ANR on startup.
+            - **Medium:** Analytics telemetry wired into HookManager — hook survival data is now reported.
+            - **Medium:** `scripts/build.sh` updated to match modernized source layout.
+            - **Medium:** `gradlew` replaced with a proper Gradle wrapper bootstrap (was a broken 2-line stub).
+            - **Fix:** `getPackageResourcePath` hook corrected from `beforeHookedMethod` to `afterHookedMethod`.
+            - **Fix:** Splits APK build pipeline added via bundletool in CI.
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apks/grindrplus-v2-universal.apks
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
