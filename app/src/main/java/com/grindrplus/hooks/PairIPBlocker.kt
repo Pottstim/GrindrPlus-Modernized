@@ -12,14 +12,14 @@ import de.robv.android.xposed.XposedHelpers
  * Issue #6 fix: Safer ClassLoader swap with whitelist for Android framework classes
  * Issue #11 fix: Native libpairip.so hooking via System.loadLibrary interception
  */
-class PairIPBlocker : Hook("PairIP Blocker", "Blocks PairIP license checks — Java + native layer") {
+class PairIPBlocker : Hook("PairIP Blocker", "Blocks PairIP license checks — Java layer only") {
 
     private val pairipPackages = setOf(
         "com.pairip.licensecheck",
         "com.pairipcore"
     )
 
-    // Whitelist: classes that must always be loadable even when PairIP is blocked
+    // Whitelist: classes that must always be loadable
     private val classWhitelist = setOf(
         "android.", "java.", "javax.", "dalvik.", "kotlin.", "kotlinx.",
         "org.xml.", "org.json.", "sun.", "com.android.", "libcore.",
@@ -31,8 +31,10 @@ class PairIPBlocker : Hook("PairIP Blocker", "Blocks PairIP license checks — J
         blockPairIPActivities()
         blockPairIPContentProvider()
         blockDynamicPairIP()
-        blockNativePairIP()
-        Logger.log("PairIP: Full block active (Java + native)")
+        // NOTE: Native lib blocking removed — blocking System.loadLibrary causes
+        // the app to crash when it tries to call JNI methods from the loaded lib.
+        // Java-level class blocking is sufficient to neutralize PairIP.
+        Logger.log("PairIP: Java-level block active (Activities + ContentProvider + ClassLoader)")
     }
 
     private fun blockPairIPActivities() {
@@ -66,7 +68,6 @@ class PairIPBlocker : Hook("PairIP Blocker", "Blocks PairIP license checks — J
             )
         } catch (e: Throwable) { Logger.error("blockPairIPContentProvider", e) }
 
-        // Block query() on PairIP URIs
         try {
             XposedHelpers.findAndHookMethod(
                 "android.content.ContentResolver", lpparam.classLoader,
@@ -86,88 +87,33 @@ class PairIPBlocker : Hook("PairIP Blocker", "Blocks PairIP license checks — J
     }
 
     /**
-     * Issue #6 fix: Safer ClassLoader with whitelist
-     * Only blocks PairIP classes, never Android framework or app classes
+     * Blocks PairIP classes from being loaded dynamically.
+     * Uses a ThreadLocal re-entrancy guard to prevent ClassNotFoundException loops.
      */
     private fun blockDynamicPairIP() {
+        val inHook = ThreadLocal.withInitial { false }
         try {
             XposedHelpers.findAndHookMethod(
                 ClassLoader::class.java, "loadClass",
                 String::class.java, Boolean::class.javaPrimitiveType,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (inHook.get()) return
                         val className = param.args[0] as? String ?: return
-
-                        // Check whitelist first — never block framework/app classes
                         if (classWhitelist.any { className.startsWith(it) }) return
-
-                        // Only block PairIP packages
                         if (pairipPackages.any { className.startsWith(it) }) {
-                            Logger.log("PairIP: Blocked dynamic load of $className")
-                            param.throwable = ClassNotFoundException(className)
+                            inHook.set(true)
+                            try {
+                                Logger.log("PairIP: Blocked dynamic load of $className")
+                                param.throwable = ClassNotFoundException(className)
+                            } finally {
+                                inHook.set(false)
+                            }
                         }
                     }
                 }
             )
             Logger.log("PairIP: ClassLoader protection active")
         } catch (e: Throwable) { Logger.error("blockDynamicPairIP", e) }
-    }
-
-    /**
-     * Issue #11 fix: Native libpairip.so blocking
-     * Hooks System.loadLibrary and Runtime.load to prevent native PairIP init
-     */
-    private fun blockNativePairIP() {
-        val nativeLibs = setOf("pairip", "pairipcore", "libpairip")
-
-        // Hook System.loadLibrary
-        try {
-            XposedHelpers.findAndHookMethod(
-                System::class.java, "loadLibrary", String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val libName = param.args[0] as? String ?: return
-                        if (nativeLibs.any { libName.contains(it, ignoreCase = true) }) {
-                            Logger.log("PairIP: Blocked native loadLibrary($libName)")
-                            // Don't call original — just return silently
-                            param.result = null
-                        }
-                    }
-                }
-            )
-        } catch (e: Throwable) { Logger.error("blockNativePairIP:loadLibrary", e) }
-
-        // Hook System.load (full path version)
-        try {
-            XposedHelpers.findAndHookMethod(
-                System::class.java, "load", String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val path = param.args[0] as? String ?: return
-                        if (nativeLibs.any { path.contains(it, ignoreCase = true) }) {
-                            Logger.log("PairIP: Blocked native load($path)")
-                            param.result = null
-                        }
-                    }
-                }
-            )
-        } catch (e: Throwable) { Logger.error("blockNativePairIP:load", e) }
-
-        // Hook Runtime.loadLibrary0 (deeper hook for apps that bypass System.loadLibrary)
-        try {
-            XposedHelpers.findAndHookMethod(
-                Runtime::class.java, "loadLibrary0",
-                ClassLoader::class.java, String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val libName = param.args[1] as? String ?: return
-                        if (nativeLibs.any { libName.contains(it, ignoreCase = true) }) {
-                            Logger.log("PairIP: Blocked Runtime.loadLibrary0($libName)")
-                            param.result = null
-                        }
-                    }
-                }
-            )
-        } catch (e: Throwable) { Logger.error("blockNativePairIP:loadLibrary0", e) }
     }
 }

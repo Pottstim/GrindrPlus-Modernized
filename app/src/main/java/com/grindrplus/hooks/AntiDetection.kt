@@ -28,9 +28,8 @@ import java.io.File
  */
 class AntiDetection : Hook("Anti-Detection", "Bypasses root, Xposed, debugger, emulator, Frida, and modified APK detection") {
 
-    // Re-entrancy guards — prevent hooks from recursively triggering themselves
-    private val inClassLoaderHook = ThreadLocal.withInitial { false }
-    private val inStackTraceHook  = ThreadLocal.withInitial { false }
+    // Re-entrancy guard — prevents the getStackTrace hook from recursively triggering itself
+    private val inStackTraceHook = ThreadLocal.withInitial { false }
 
     private val dangerousPaths = setOf(
         "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su",
@@ -107,54 +106,33 @@ class AntiDetection : Hook("Anti-Detection", "Bypasses root, Xposed, debugger, e
     }
 
     private fun bypassXposedDetection() {
-        // Fix #3b: Re-entrancy guard on Throwable.getStackTrace to prevent infinite loops
+        // Fix #3b: Re-entrancy guard on Throwable.getStackTrace — use afterHookedMethod
+        // instead of XC_MethodReplacement to avoid breaking exception constructors
         try {
             XposedHelpers.findAndHookMethod(
                 Throwable::class.java, "getStackTrace",
-                object : XC_MethodReplacement() {
-                    override fun replaceHookedMethod(param: MethodHookParam): Array<StackTraceElement> {
-                        if (inStackTraceHook.get()) {
-                            // Re-entrant call — return empty to break the loop
-                            return emptyArray()
-                        }
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (inStackTraceHook.get()) return
                         inStackTraceHook.set(true)
-                        return try {
-                            val original = Throwable().stackTrace
-                            original.filter { element ->
+                        try {
+                            val original = param.result as? Array<StackTraceElement> ?: return
+                            param.result = original.filter { element ->
                                 !element.className.contains("de.robv.android.xposed") &&
                                 !element.className.contains("com.grindrplus") &&
                                 !element.methodName.contains("handleHookedMethod") &&
                                 !element.methodName.contains("invoke")
                             }.toTypedArray()
-                        } catch (_: Throwable) { emptyArray() }
+                        } catch (_: Throwable) { }
                         finally { inStackTraceHook.set(false) }
                     }
                 }
             )
         } catch (e: Throwable) { Logger.error("bypassXposedDetection:getStackTrace", e) }
 
-        // Fix #3a: Re-entrancy guard on ClassLoader.loadClass to prevent ClassNotFoundException loops
-        try {
-            XposedHelpers.findAndHookMethod(
-                ClassLoader::class.java, "loadClass",
-                String::class.java, Boolean::class.javaPrimitiveType,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (inClassLoaderHook.get()) return  // Re-entrant — skip
-                        val className = param.args[0] as? String ?: return
-                        if (className.startsWith("de.robv.android.xposed") ||
-                            className.startsWith("com.grindrplus")) {
-                            inClassLoaderHook.set(true)
-                            try {
-                                param.throwable = ClassNotFoundException(className)
-                            } finally {
-                                inClassLoaderHook.set(false)
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (e: Throwable) { Logger.error("bypassXposedDetection:loadClass", e) }
+        // NOTE: ClassLoader.loadClass hook removed from here — PairIPBlocker handles
+        // this with a proper re-entrancy guard. Having two hooks on the same method
+        // causes conflicts and force closes.
 
         // Hook SystemProperties to hide Xposed / emulator markers
         try {
