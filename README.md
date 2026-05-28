@@ -16,11 +16,28 @@ Premium unlock + feature enhancements for Grindr 26.x+ with PairIP bypass, GMS s
 | Config | None | JSON config with per-hook toggle |
 | Logging | `print()` | Structured Logger with file + XposedBridge |
 
-## Three Ways to Use
+## Four Ways to Use
 
-### Option A: Pre-Patched APK (Easiest — No Root, No LSPatch)
+### Option 0: Monolithic APK (Easiest — No Root, No SAI, No_splits)
 
-Download the **pre-patched Grindr APK** — GrindrPlus is already embedded. Just install and go.
+A single APK with everything merged in. Just tap to install — no split installer needed.
+
+**What you need:**
+- Android phone (no root required)
+- "Install from unknown sources" enabled
+
+**File:**
+- `grindr-26.8.2-grindrplus-v2-mono.apk` (132MB) — Single APK, all features included
+
+**Steps:**
+1. Uninstall original Grindr (`adb uninstall com.grindrapp.android` or Settings → Apps → Uninstall)
+2. Download `grindr-26.8.2-grindrplus-v2-mono.apk` from the **v2.0.0-full** release
+3. Open the file → Install
+4. Open Grindr → Log in → All features unlocked
+
+### Option A: Split APK Bundle (No Root, Needs SAI)
+
+Download the **pre-patched Grindr split APKs** — GrindrPlus is already embedded. Just install and go.
 
 **What you need:**
 - Android phone (no root required)
