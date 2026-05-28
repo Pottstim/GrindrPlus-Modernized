@@ -1,66 +1,57 @@
 #!/bin/bash
-# fix-native-libs.sh — Recompress an APK so native .so libs are stored uncompressed.
-# This fixes INSTALL_FAILED_INVALID_APK (res=-2) on devices with extractNativeLibs="false".
+# fix-native-libs.sh — Recompress an APK so native .so libs AND resources.arsc
+# are stored uncompressed. Fixes INSTALL_FAILED_INVALID_APK (res=-2) and
+# installPackageLI -124 on Android 11+.
 #
-# Usage: ./scripts/fix-native-libs.sh input.apk [output.apk]
+# Usage: ./scripts/fix-native-libs.sh input.apk output.apk
+#
+# Requires: zip, zipalign, apksigner (Android SDK build-tools)
 
-set -e
+set -euo pipefail
 
-INPUT="$1"
-OUTPUT="${2:-${1%.apk}-fixed.apk}"
-
-if [ ! -f "$INPUT" ]; then
-    echo "ERROR: Input APK not found: $INPUT"
-    exit 1
-fi
+INPUT="${1:?Usage: $0 <input.apk> <output.apk>}"
+OUTPUT="${2:?Usage: $0 <input.apk> <output.apk>}"
 
 TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "=== Fixing native library compression ==="
-echo "Input:  $INPUT"
-echo "Output: $OUTPUT"
+echo "[1/5] Extracting APK..."
+unzip -q "$INPUT" -d "$TMPDIR"
 
-# Unzip
-echo "Extracting APK..."
-unzip -q -o "$INPUT" -d "$TMPDIR"
+echo "[2/5] Removing old signature..."
+rm -rf "$TMPDIR"/META-INF/*
 
-# Remove old signature
-rm -rf "$TMPDIR/META-INF"
-
-# Re-zip with compression (default)
-echo "Repacking APK..."
+echo "[3/5] Repacking with uncompressed native libs and resources.arsc..."
 cd "$TMPDIR"
-zip -q -r "$TMPDIR/repacked.apk" . -x "*.DS_Store"
+zip -r "$TMPDIR/unsigned.apk" . -x "*.DS_Store" >/dev/null
 
-# Re-store .so files uncompressed
-echo "Storing native libs uncompressed..."
-find lib -name "*.so" -exec zip -q -0 "$TMPDIR/repacked.apk" {} \; 2>/dev/null || true
+# Store resources.arsc uncompressed (required for Android 11+/API 30+)
+zip -0 "$TMPDIR/unsigned.apk" resources.arsc >/dev/null
 
-# Zipalign
-echo "Zipaligning..."
-zipalign -p -f 4 "$TMPDIR/repacked.apk" "$TMPDIR/aligned.apk"
+# Store all lib/*.so files uncompressed (required when extractNativeLibs="false")
+find lib -name "*.so" -exec zip -0 "$TMPDIR/unsigned.apk" {} \; >/dev/null
 
-# Sign
-echo "Signing..."
+echo "[4/5] Zipaligning..."
+zipalign -p -v 4 "$TMPDIR/unsigned.apk" "$TMPDIR/aligned.apk"
+
+echo "[5/5] Signing..."
+KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
+KEYSTORE_PASS="${KEYSTORE_PASS:-android}"
+KEY_ALIAS="${KEY_ALIAS:-androiddebugkey}"
+
 apksigner sign \
-    --ks "${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}" \
-    --ks-pass pass:android \
-    --key-pass pass:android \
-    --ks-key-alias androiddebugkey \
-    --out "$OUTPUT" \
-    "$TMPDIR/aligned.apk"
+  --ks "$KEYSTORE" \
+  --ks-pass "pass:$KEYSTORE_PASS" \
+  --key-pass "pass:$KEYSTORE_PASS" \
+  --ks-key-alias "$KEY_ALIAS" \
+  --v1-signing-enabled true \
+  --v2-signing-enabled true \
+  --v3-signing-enabled true \
+  --out "$OUTPUT" \
+  "$TMPDIR/aligned.apk"
 
-# Verify
-echo "Verifying..."
-apksigner verify "$OUTPUT"
+apksigner verify --verbose "$OUTPUT"
 
-# Report
-SO_COUNT=$(unzip -Z "$OUTPUT" | grep "^.*lib/.*\.so$" | grep "stor" | wc -l)
-SO_COMPRESSED=$(unzip -Z "$OUTPUT" | grep "^.*lib/.*\.so$" | grep -v "stor" | wc -l)
 echo ""
-echo "=== Done ==="
-echo "Native libs stored uncompressed: $SO_COUNT"
-echo "Native libs still compressed:    $SO_COMPRESSED (should be 0)"
-echo "Output: $OUTPUT"
+echo "Done: $OUTPUT"
 ls -lh "$OUTPUT"
