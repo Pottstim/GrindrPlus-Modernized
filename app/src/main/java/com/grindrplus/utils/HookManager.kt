@@ -4,7 +4,6 @@ import com.grindrplus.core.Config
 import com.grindrplus.core.HookStateStore
 import com.grindrplus.core.RemoteConfig
 import com.grindrplus.hooks.*
-import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -30,12 +29,17 @@ class HookManager {
         Logger.d("Registered: ${hook.name}")
     }
 
+    /**
+     * Fix #1: HookStateStore.init(context) is now called from GrindrPlus.kt
+     * BEFORE this method is invoked, so prefs is guaranteed non-null here.
+     * The old init(null) call has been removed.
+     */
     fun initAll(lpparam: XC_LoadPackage.LoadPackageParam): Map<String, Boolean> {
         Config.init()
         HookStateStore.incrementInitCount()
-        HookStateStore.init(null)
+        // NOTE: HookStateStore.init(context) is called in GrindrPlus.kt — do NOT call init(null) here.
 
-        // Fetch remote config
+        // Fetch remote config overrides
         if (Config.isRemoteConfigEnabled()) {
             RemoteConfig.fetchAsync { remoteJson ->
                 val remoteFeatures = RemoteConfig.getFeatureOverrides()
@@ -46,7 +50,7 @@ class HookManager {
             }
         }
 
-        // Check safe mode
+        // Check safe mode (now reads from real SharedPreferences)
         if (HookStateStore.isSafeMode()) {
             Logger.warn("SAFE MODE: Only essential hooks will load")
         }
@@ -69,7 +73,7 @@ class HookManager {
                     return@forEach
                 }
 
-                // Self-healing: skip hooks that have been failing repeatedly
+                // Self-healing: skip hooks that have been failing repeatedly (now functional)
                 if (HookStateStore.isFailing(hook.name)) {
                     Logger.warn("Skipped (failing): ${hook.name} — will retry next session")
                     results[hook.name] = false

@@ -9,7 +9,16 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 
 /**
- * Issue #12 fix: Added network-level ban check interception via OkHttp/Retrofit hooks
+ * Fix #2: OkHttp response stream consumption bug resolved.
+ *
+ * The original implementation called ResponseBody.string() which drains and closes
+ * the OkHttp response stream. Any non-ban response would then crash Grindr's
+ * networking layer with "IllegalStateException: closed" when it tried to parse
+ * the already-consumed body.
+ *
+ * Fix: We now buffer the Okio source via source.request(Long.MAX_VALUE) and then
+ * clone the internal buffer for inspection, leaving the original source intact
+ * for Grindr's own parsers to consume normally.
  */
 class BanManagement : Hook("Ban Management", "Prevents ban checks — local + network level") {
 
@@ -56,35 +65,48 @@ class BanManagement : Hook("Ban Management", "Prevents ban checks — local + ne
     }
 
     private fun spoofBanStatus() {
-        XposedHelpers.findAndHookMethod("android.content.SharedPreferences",
-            lpparam.classLoader, "getBoolean",
-            String::class.java, Boolean::class.javaPrimitiveType,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val key = param.args[0] as? String ?: return
-                    if (key.contains("ban", ignoreCase = true) ||
-                        key.contains("restrict", ignoreCase = true) ||
-                        key.contains("suspend", ignoreCase = true) ||
-                        key.contains("shadow", ignoreCase = true)) {
-                        param.result = false
+        try {
+            XposedHelpers.findAndHookMethod("android.content.SharedPreferences",
+                lpparam.classLoader, "getBoolean",
+                String::class.java, Boolean::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val key = param.args[0] as? String ?: return
+                        if (key.contains("ban", ignoreCase = true) ||
+                            key.contains("restrict", ignoreCase = true) ||
+                            key.contains("suspend", ignoreCase = true) ||
+                            key.contains("shadow", ignoreCase = true)) {
+                            param.result = false
+                        }
                     }
-                }
-            })
-        Logger.log("BanMgmt: SharedPreferences ban spoofing active")
+                })
+            Logger.log("BanMgmt: SharedPreferences ban spoofing active")
+        } catch (e: Throwable) { Logger.error("spoofBanStatus:SharedPreferences", e) }
     }
 
     /**
-     * Issue #12 fix: Network-level ban check interception
-     * Hooks OkHttp Interceptor and Retrofit Response to strip ban responses
+     * Fix #2: Network-level ban check interception — stream-safe implementation.
+     *
+     * Strategy: Use Okio's buffered source to peek at the response body without
+     * consuming it. We call source.request(Long.MAX_VALUE) to buffer all bytes
+     * into the internal Okio Buffer, then clone that buffer for reading. The
+     * original source remains intact so Grindr's Retrofit/Gson parsers can
+     * read it normally on non-ban responses.
+     *
+     * Only when a ban IS detected do we replace the entire response object with
+     * a clean 200/OK response containing {"status":"ok"}.
      */
     private fun interceptNetworkBanChecks() {
-        // Hook OkHttp3 Interceptor.Chain.proceed to modify ban responses
         try {
             val interceptorChain = XposedHelpers.findClass(
                 "okhttp3.Interceptor\$Chain", lpparam.classLoader
             )
-            val responseClass = XposedHelpers.findClass("okhttp3.Response", lpparam.classLoader)
-            val responseBuilderClass = XposedHelpers.findClass("okhttp3.Response\$Builder", lpparam.classLoader)
+            val responseBodyClass = XposedHelpers.findClass(
+                "okhttp3.ResponseBody", lpparam.classLoader
+            )
+            val mediaTypeClass = XposedHelpers.findClass(
+                "okhttp3.MediaType", lpparam.classLoader
+            )
 
             XposedHelpers.findAndHookMethod(interceptorChain, "proceed",
                 XposedHelpers.findClass("okhttp3.Request", lpparam.classLoader),
@@ -92,9 +114,20 @@ class BanManagement : Hook("Ban Management", "Prevents ban checks — local + ne
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
                             val response = param.result ?: return
-                            val code = XposedHelpers.callMethod(response, "code") as? Int ?: return
                             val body = XposedHelpers.callMethod(response, "body") ?: return
-                            val bodyString = XposedHelpers.callMethod(body, "string") as? String ?: return
+
+                            // --- Fix #2 core: buffer via Okio without draining the source ---
+                            val source = XposedHelpers.callMethod(body, "source") ?: return
+                            // Request all bytes into the internal buffer
+                            XposedHelpers.callMethod(source, "request", Long.MAX_VALUE)
+                            // Get the internal buffer and clone it for safe reading
+                            val buffer = XposedHelpers.callMethod(source, "buffer") ?: return
+                            val clonedBuffer = XposedHelpers.callMethod(buffer, "clone") ?: return
+                            val bodyString = XposedHelpers.callMethod(
+                                clonedBuffer, "readString",
+                                java.nio.charset.Charset.forName("UTF-8")
+                            ) as? String ?: return
+                            // Original source is still fully buffered — Grindr can read it normally
 
                             // Check if response contains ban-related JSON
                             if (bodyString.contains("\"banned\"", ignoreCase = true) ||
@@ -103,23 +136,26 @@ class BanManagement : Hook("Ban Management", "Prevents ban checks — local + ne
 
                                 Logger.log("BanMgmt: Intercepted ban response from network")
 
-                                // Replace with clean response
-                                val newBody = XposedHelpers.callStaticMethod(
-                                    XposedHelpers.findClass("okhttp3.ResponseBody", lpparam.classLoader),
-                                    "create",
-                                    body, // MediaType
+                                // Build a clean replacement response
+                                val jsonMediaType = XposedHelpers.callStaticMethod(
+                                    mediaTypeClass, "parse", "application/json; charset=utf-8"
+                                )
+                                val cleanBody = XposedHelpers.callStaticMethod(
+                                    responseBodyClass, "create",
+                                    jsonMediaType,
                                     "{\"status\":\"ok\"}"
                                 )
-                                val newResponse = XposedHelpers.newInstance(responseBuilderClass, response)
+                                val newResponse = XposedHelpers.callMethod(response, "newBuilder")
                                 XposedHelpers.callMethod(newResponse, "code", 200)
-                                XposedHelpers.callMethod(newResponse, "body", newBody)
                                 XposedHelpers.callMethod(newResponse, "message", "OK")
+                                XposedHelpers.callMethod(newResponse, "body", cleanBody)
                                 param.result = XposedHelpers.callMethod(newResponse, "build")
                             }
+                            // Non-ban responses: original response is untouched and stream is intact
                         } catch (_: Throwable) {}
                     }
                 })
-            Logger.log("BanMgmt: OkHttp network interceptor active")
+            Logger.log("BanMgmt: OkHttp network interceptor active (stream-safe)")
         } catch (e: Throwable) { Logger.error("interceptNetworkBanChecks:OkHttp", e) }
 
         // Hook Retrofit Response to strip ban bodies
