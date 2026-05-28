@@ -41,6 +41,18 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+      - name: Create debug keystore
+        run: |
+          mkdir -p ~/.android
+          keytool -genkey -v \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
 
       # -----------------------------------------------------------------------
       # Build 1: Debug module APK (for LSPosed / LSPatch use)
@@ -77,7 +89,7 @@ jobs:
             --bundle=app/build/outputs/bundle/release/app-release.aab \
             --output=app/build/outputs/apks/grindrplus-v2-universal.apks \
             --mode=universal \
-            --ks="$ANDROID_HOME/debug.keystore" \
+            --ks="$HOME/.android/debug.keystore" \
             --ks-pass=pass:android \
             --key-pass=pass:android \
             --ks-key-alias=androiddebugkey
