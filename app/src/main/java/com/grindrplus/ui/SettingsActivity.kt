@@ -7,17 +7,38 @@ import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.grindrplus.BuildConfig
 import com.grindrplus.core.Config
 import com.grindrplus.core.HookStateStore
 import com.grindrplus.utils.Logger
 
 /**
- * Issue #4 fix: Full settings UI with per-hook toggles, feature switches, and log viewer
+ * Launcher Activity — GrindrPlus module settings UI.
+ *
+ * Crash fixes applied:
+ *
+ * Fix A: Config.init() and HookStateStore.init(context) are now called in onCreate()
+ *   before any reads. Previously, SettingsActivity read from Config and HookStateStore
+ *   before they were initialised — they are only initialised inside Grindr's process via
+ *   GrindrPlus.kt. In standalone mode (opening the app directly) neither singleton had
+ *   been set up, causing NPE / silent crash on the very first Config.isDebugMode() call.
+ *
+ * Fix B: Logger.kt has been updated to call XposedBridge reflectively so that
+ *   NoClassDefFoundError is caught at runtime rather than crashing at class-load time.
+ *   Logger calls here are therefore safe in both standalone and hooked modes.
+ *
+ * Fix C: Theme.GrindrPlus now extends Theme.AppCompat.NoActionBar (see themes.xml).
+ *   The previous parent (android:Theme.Material.Light.NoActionBar) is not an AppCompat
+ *   theme, causing "You need to use a Theme.AppCompat theme" crash on AppCompatActivity.
  */
 class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Fix A: Initialise singletons with a real Context before any reads
+        Config.init()
+        HookStateStore.init(this)
 
         val scrollView = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#1A1A1D"))
@@ -28,69 +49,98 @@ class SettingsActivity : AppCompatActivity() {
             setPadding(48, 48, 48, 48)
         }
 
-        // Title
+        // ── Header ────────────────────────────────────────────────────────────
         root.addView(TextView(this).apply {
-            text = "GrindrPlus v2.0"
+            text = "GrindrPlus v${BuildConfig.VERSION_NAME}"
             textSize = 24f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#E0E0E0"))
             gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 8)
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Xposed module — enable in LSPosed/LSPatch and select Grindr as the scope."
+            textSize = 13f
+            setTextColor(Color.parseColor("#888888"))
+            gravity = Gravity.CENTER
             setPadding(0, 0, 0, 32)
         })
 
-        // Debug mode toggle
-        root.addView(createToggle("Debug Mode", Config.isDebugMode()) { enabled: Boolean ->
+        // ── Module active indicator ───────────────────────────────────────────
+        val isModuleActive = isXposedActive()
+        root.addView(TextView(this).apply {
+            text = if (isModuleActive) "✓  Module is ACTIVE" else "✗  Module is NOT active (enable in LSPosed)"
+            textSize = 14f
+            setTextColor(if (isModuleActive) Color.parseColor("#4CAF50") else Color.parseColor("#FF5722"))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 32)
+        })
+
+        // ── General toggles ───────────────────────────────────────────────────
+        root.addView(createSectionHeader("General"))
+
+        root.addView(createToggle("Debug Mode", Config.isDebugMode()) { enabled ->
             Config.setDebugMode(enabled)
             Logger.log("Settings: Debug mode ${if (enabled) "enabled" else "disabled"}")
         })
 
-        // Remote config toggle
-        root.addView(createToggle("Remote Config", Config.isRemoteConfigEnabled()) { enabled: Boolean ->
+        root.addView(createToggle("Remote Config", Config.isRemoteConfigEnabled()) { enabled ->
             Config.setRemoteConfigEnabled(enabled)
             Logger.log("Settings: Remote config ${if (enabled) "enabled" else "disabled"}")
         })
 
-        // Safe mode toggle
-        root.addView(createToggle("Safe Mode (essential hooks only)", HookStateStore.isSafeMode()) { enabled: Boolean ->
+        root.addView(createToggle("Safe Mode (essential hooks only)", HookStateStore.isSafeMode()) { enabled ->
             HookStateStore.setSafeMode(enabled)
             Logger.log("Settings: Safe mode ${if (enabled) "enabled" else "disabled"}")
         })
 
-        // Section: Feature Toggles
+        // ── Premium feature toggles ───────────────────────────────────────────
         root.addView(createSectionHeader("Premium Features"))
 
         val features = listOf(
-            "unlimited_messages" to "Unlimited Messages",
-            "see_who_viewed" to "See Who Viewed Me",
-            "unlimited_rewinds" to "Unlimited Rewinds",
-            "premium_filters" to "Premium Filters",
-            "expiring_photos" to "Expiring Photos",
-            "typing_status" to "Typing Status",
-            "advanced_search" to "Advanced Search",
-            "hide_online" to "Hide Online Status",
-            "hide_read_receipts" to "Hide Read Receipts",
-            "hide_distance" to "Hide Distance"
+            Config.FEATURE_UNLIMITED_MESSAGES  to "Unlimited Messages",
+            Config.FEATURE_SEE_VIEWERS         to "See Who Viewed Me",
+            Config.FEATURE_UNLIMITED_REWINDS   to "Unlimited Rewinds",
+            Config.FEATURE_PREMIUM_FILTERS     to "Premium Filters",
+            Config.FEATURE_EXPIRING_PHOTOS     to "Expiring Photos",
+            Config.FEATURE_TYPING_STATUS       to "Typing Status",
+            Config.FEATURE_ADVANCED_SEARCH     to "Advanced Search",
+            Config.FEATURE_HIDE_ONLINE         to "Hide Online Status",
+            Config.FEATURE_HIDE_READ_RECEIPTS  to "Hide Read Receipts",
+            Config.FEATURE_HIDE_DISTANCE       to "Hide Distance"
         )
 
         features.forEach { (key, label) ->
-            root.addView(createToggle(label, Config.isFeatureEnabled(key)) { enabled: Boolean ->
+            root.addView(createToggle(label, Config.isFeatureEnabled(key)) { enabled ->
                 Config.setFeatureEnabled(key, enabled)
                 Logger.log("Settings: Feature '$key' ${if (enabled) "enabled" else "disabled"}")
             })
         }
 
-        // Section: Hook Toggles
+        // ── Hook status ───────────────────────────────────────────────────────
         root.addView(createSectionHeader("Hooks"))
 
         val hooks = Config.getRegisteredHooks()
-        hooks.forEach { (name, enabled) ->
-            root.addView(createToggle(name, enabled) { isEnabled: Boolean ->
-                Config.setHookEnabled(name, isEnabled)
-                Logger.log("Settings: Hook '$name' ${if (isEnabled) "enabled" else "disabled"}")
+        if (hooks.isEmpty()) {
+            root.addView(TextView(this).apply {
+                text = "No hooks registered yet — hooks are registered when Grindr runs with the module active."
+                textSize = 13f
+                setTextColor(Color.parseColor("#888888"))
+                setPadding(0, 8, 0, 8)
             })
+        } else {
+            hooks.forEach { (name, enabled) ->
+                root.addView(createToggle(name, enabled) { isEnabled ->
+                    Config.setHookEnabled(name, isEnabled)
+                    Logger.log("Settings: Hook '$name' ${if (isEnabled) "enabled" else "disabled"}")
+                })
+            }
         }
 
-        // Test Report button
+        // ── Diagnostics ───────────────────────────────────────────────────────
+        root.addView(createSectionHeader("Diagnostics"))
+
         root.addView(Button(this).apply {
             text = "View Hook Test Report"
             setTextColor(Color.WHITE)
@@ -112,7 +162,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         })
 
-        // Export Logs button
         root.addView(Button(this).apply {
             text = "Export Logs"
             setTextColor(Color.WHITE)
@@ -120,13 +169,14 @@ class SettingsActivity : AppCompatActivity() {
             setPadding(0, 32, 0, 32)
             setOnClickListener {
                 val path = Logger.exportLogs(cacheDir)
-                Toast.makeText(this@SettingsActivity,
+                Toast.makeText(
+                    this@SettingsActivity,
                     if (path != null) "Logs saved to $path" else "Export failed",
-                    Toast.LENGTH_LONG).show()
+                    Toast.LENGTH_LONG
+                ).show()
             }
         })
 
-        // Clear State button
         root.addView(Button(this).apply {
             text = "Reset All State"
             setTextColor(Color.WHITE)
@@ -152,6 +202,13 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(scrollView)
     }
 
+    /**
+     * Returns whether the Xposed module is currently active in this process.
+     * In standalone mode this always returns false. When running inside Grindr's
+     * process under LSPosed/LSPatch, GrindrPlus hooks this method to return true.
+     */
+    private fun isXposedActive(): Boolean = false
+
     private fun createToggle(label: String, initial: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -164,6 +221,7 @@ class SettingsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
+            @Suppress("DEPRECATION")
             val switchView = Switch(this@SettingsActivity).apply {
                 isChecked = initial
                 setOnCheckedChangeListener { _, isChecked -> onChange(isChecked) }

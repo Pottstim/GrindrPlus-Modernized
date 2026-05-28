@@ -1,7 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.GrindrPlus" parent="android:Theme.Material.Light.NoActionBar">
+    <!--
+        Fix C: Changed parent from android:Theme.Material.Light.NoActionBar to
+        Theme.AppCompat.NoActionBar.
+
+        AppCompatActivity requires an AppCompat theme (or descendant). Using the
+        non-AppCompat android:Theme.Material parent caused the activity to throw:
+          "You need to use a Theme.AppCompat theme (or descendant) with this activity"
+        which manifests as a silent crash — the app installs but won't open.
+    -->
+    <style name="Theme.GrindrPlus" parent="Theme.AppCompat.NoActionBar">
         <item name="android:statusBarColor">#1A1A2E</item>
         <item name="android:navigationBarColor">#1A1A2E</item>
+        <item name="android:windowBackground">#1A1A1D</item>
+        <item name="colorPrimary">#E94560</item>
+        <item name="colorPrimaryDark">#1A1A2E</item>
+        <item name="colorAccent">#D4A574</item>
     </style>
 </resources>
